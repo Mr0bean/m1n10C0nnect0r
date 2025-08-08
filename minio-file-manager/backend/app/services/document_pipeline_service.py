@@ -10,6 +10,7 @@ from io import BytesIO
 
 from app.services.minio_service import MinioService
 from app.services.elasticsearch_service import ElasticsearchService
+from app.services.article_processing_service import article_processing_service
 from app.core.config import get_settings
 
 
@@ -172,42 +173,56 @@ class DocumentPipelineService:
                 result['public_url'] = presigned_url
             
             if self.is_document_file(file_name, content_type):
-                extracted_data = self.extract_content(file_content, file_name, content_type)
-                
-                es_document = {
-                    'bucket_name': bucket_name,
-                    'object_name': file_name,
-                    'size': len(file_content),
-                    'content_type': content_type or mimetypes.guess_type(file_name)[0],
-                    'upload_time': datetime.utcnow().isoformat(),
-                    'minio_public_url': result['public_url'],
-                    'content': extracted_data['content'],
-                    'content_full': extracted_data.get('content_full'),
-                    'html_content': extracted_data.get('html_content'),
-                    'content_hash': extracted_data['content_hash'],
-                    'document_metadata': extracted_data['metadata'],
-                    'statistics': extracted_data['statistics'],
-                    'extracted_urls': extracted_data['extracted_urls'],
-                    'document_type': extracted_data['metadata'].get('format', 'unknown'),
-                    'title': extracted_data['metadata'].get('title', file_name),
-                    'searchable': True
-                }
-                
-                if 'description' in extracted_data['metadata']:
-                    es_document['description'] = extracted_data['metadata']['description']
-                if 'keywords' in extracted_data['metadata']:
-                    es_document['keywords'] = extracted_data['metadata']['keywords'].split(',')
-                if 'author' in extracted_data['metadata']:
-                    es_document['author'] = extracted_data['metadata']['author']
-                
-                index_result = await self.es_service.index_document(
-                    index_name='minio_documents',
-                    document=es_document,
-                    document_id=extracted_data['content_hash']
+                # 使用新的文章处理服务进行索引
+                article_result = await article_processing_service.process_and_index(
+                    bucket_name=bucket_name,
+                    object_name=file_name,
+                    file_content=file_content,
+                    content_type=content_type
                 )
                 
-                result['es_indexed'] = True
-                result['es_document_id'] = extracted_data['content_hash']
+                if article_result['success']:
+                    result['es_indexed'] = True
+                    result['es_document_id'] = article_result['doc_id']
+                    result['index_name'] = article_result['index']
+                else:
+                    # 如果新服务失败，使用旧的索引方式作为备份
+                    extracted_data = self.extract_content(file_content, file_name, content_type)
+                    
+                    es_document = {
+                        'bucket_name': bucket_name,
+                        'object_name': file_name,
+                        'size': len(file_content),
+                        'content_type': content_type or mimetypes.guess_type(file_name)[0],
+                        'upload_time': datetime.utcnow().isoformat(),
+                        'minio_public_url': result['public_url'],
+                        'content': extracted_data['content'],
+                        'content_full': extracted_data.get('content_full'),
+                        'html_content': extracted_data.get('html_content'),
+                        'content_hash': extracted_data['content_hash'],
+                        'document_metadata': extracted_data['metadata'],
+                        'statistics': extracted_data['statistics'],
+                        'extracted_urls': extracted_data['extracted_urls'],
+                        'document_type': extracted_data['metadata'].get('format', 'unknown'),
+                        'title': extracted_data['metadata'].get('title', file_name),
+                        'searchable': True
+                    }
+                    
+                    if 'description' in extracted_data['metadata']:
+                        es_document['description'] = extracted_data['metadata']['description']
+                    if 'keywords' in extracted_data['metadata']:
+                        es_document['keywords'] = extracted_data['metadata']['keywords'].split(',')
+                    if 'author' in extracted_data['metadata']:
+                        es_document['author'] = extracted_data['metadata']['author']
+                    
+                    index_result = await self.es_service.index_document(
+                        index_name='minio_documents',
+                        document=es_document,
+                        document_id=extracted_data['content_hash']
+                    )
+                    
+                    result['es_indexed'] = True
+                    result['es_document_id'] = extracted_data['content_hash']
             
             return result
             

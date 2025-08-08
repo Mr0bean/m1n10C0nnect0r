@@ -1,9 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from app.core.config import get_settings
-from app.api.endpoints import buckets, objects, search, documents
+from app.api.endpoints import buckets, objects, search, documents, elasticsearch
+from app.services.index_initializer import index_initializer
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await index_initializer.initialize_indices()
+    yield
+    # Shutdown
+
 
 app = FastAPI(
     title=settings.api_title,
@@ -11,7 +22,8 @@ app = FastAPI(
     description=settings.api_description,
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -26,6 +38,7 @@ app.include_router(buckets.router, prefix="/api/v1")
 app.include_router(objects.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(elasticsearch.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Health"])
