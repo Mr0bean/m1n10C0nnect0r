@@ -43,6 +43,31 @@ export interface PresignedUrlResponse {
   expires_in: number
 }
 
+export interface SearchResultItem {
+  score: number
+  bucket: string
+  object_name: string
+  file_name: string
+  file_size: number
+  content_type: string
+  upload_time: string
+  public_url?: string | null
+  is_public?: boolean
+  highlight?: Record<string, string[]>
+}
+
+export interface FileSearchResponse {
+  total: number
+  page: number
+  size: number
+  results: SearchResultItem[]
+}
+
+export interface DocumentSearchResponse {
+  total: number
+  documents: Array<Record<string, any>>
+}
+
 export const bucketApi = {
   list: async (): Promise<Bucket[]> => {
     const { data } = await api.get('/buckets')
@@ -126,6 +151,30 @@ export const objectApi = {
       expires,
       method,
     })
+    return data
+  },
+}
+
+export const searchApi = {
+  searchFiles: async (params: {
+    query?: string
+    bucket?: string
+    file_type?: string
+    page?: number
+    size?: number
+  }): Promise<FileSearchResponse> => {
+    const { data } = await api.get('/search/files', { params })
+    return data
+  },
+
+  searchDocuments: async (params: {
+    query: string
+    fuzzy?: boolean
+    bucket_name?: string
+    document_type?: string
+    size?: number
+  }): Promise<DocumentSearchResponse> => {
+    const { data } = await api.get('/documents/search', { params })
     return data
   },
 }

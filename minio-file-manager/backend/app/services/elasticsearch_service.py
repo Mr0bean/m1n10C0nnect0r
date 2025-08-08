@@ -376,6 +376,135 @@ class ElasticsearchService:
         """关闭Elasticsearch连接"""
         if self.client:
             await self.client.close()
+    
+    async def create_document_index_if_not_exists(self):
+        """创建文档内容索引（如果不存在）"""
+        try:
+            client = await self.get_client()
+            index_name = "minio_documents"
+            
+            if not await client.indices.exists(index=index_name):
+                mapping = {
+                    "mappings": {
+                        "properties": {
+                            "bucket_name": {"type": "keyword"},
+                            "object_name": {"type": "keyword"},
+                            "title": {
+                                "type": "text",
+                                "analyzer": "standard",
+                                "fields": {
+                                    "keyword": {"type": "keyword"}
+                                }
+                            },
+                            "content": {
+                                "type": "text",
+                                "analyzer": "standard"
+                            },
+                            "content_full": {
+                                "type": "text",
+                                "index": False
+                            },
+                            "html_content": {
+                                "type": "text",
+                                "index": False
+                            },
+                            "content_hash": {"type": "keyword"},
+                            "document_type": {"type": "keyword"},
+                            "size": {"type": "long"},
+                            "content_type": {"type": "keyword"},
+                            "upload_time": {"type": "date"},
+                            "minio_public_url": {"type": "keyword"},
+                            "description": {"type": "text"},
+                            "keywords": {"type": "keyword"},
+                            "author": {"type": "text"},
+                            "document_metadata": {
+                                "type": "object",
+                                "enabled": True
+                            },
+                            "statistics": {
+                                "properties": {
+                                    "word_count": {"type": "integer"},
+                                    "char_count": {"type": "integer"},
+                                    "line_count": {"type": "integer"},
+                                    "url_count": {"type": "integer"}
+                                }
+                            },
+                            "extracted_urls": {"type": "keyword"},
+                            "searchable": {"type": "boolean"}
+                        }
+                    },
+                    "settings": {
+                        "number_of_shards": 2,
+                        "number_of_replicas": 1,
+                        "analysis": {
+                            "analyzer": {
+                                "standard": {
+                                    "type": "standard"
+                                },
+                                "ngram_analyzer": {
+                                    "type": "custom",
+                                    "tokenizer": "standard",
+                                    "filter": ["lowercase", "ngram_filter"]
+                                }
+                            },
+                            "filter": {
+                                "ngram_filter": {
+                                    "type": "ngram",
+                                    "min_gram": 2,
+                                    "max_gram": 4
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                await client.indices.create(index=index_name, body=mapping)
+                print(f"创建文档内容索引: {index_name}")
+        except Exception as e:
+            print(f"创建文档索引失败: {e}")
+    
+    async def index_document(self, index_name: str, document: Dict[str, Any], document_id: Optional[str] = None) -> Dict[str, Any]:
+        """索引文档到指定索引"""
+        try:
+            client = await self.get_client()
+            
+            if index_name == "minio_documents":
+                await self.create_document_index_if_not_exists()
+            
+            result = await client.index(
+                index=index_name,
+                id=document_id,
+                body=document
+            )
+            
+            return {
+                "success": True,
+                "id": result["_id"],
+                "result": result["result"]
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def search(self, index_name: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """通用搜索方法"""
+        try:
+            client = await self.get_client()
+            return await client.search(index=index_name, body=body)
+        except Exception as e:
+            print(f"搜索失败: {e}")
+            return {"hits": {"total": {"value": 0}, "hits": []}}
+    
+    async def get_document(self, index_name: str, document_id: str) -> Optional[Dict[str, Any]]:
+        """获取单个文档"""
+        try:
+            client = await self.get_client()
+            return await client.get(index=index_name, id=document_id)
+        except Exception as e:
+            print(f"获取文档失败: {e}")
+            return None
 
 
 # 全局实例

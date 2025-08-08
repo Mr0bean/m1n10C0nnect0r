@@ -1,5 +1,7 @@
 from minio import Minio
 from minio.error import MinioException
+from minio.commonconfig import CopySource
+from starlette.concurrency import run_in_threadpool
 from typing import List, BinaryIO, Optional, Dict, Any
 from datetime import timedelta
 import io
@@ -16,9 +18,29 @@ class MinioService:
             secure=settings.minio_use_ssl
         )
     
+    def _sanitize_metadata_for_s3(self, metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+        """将元数据清洗为仅包含 ASCII 的键值对，以满足 S3/MinIO 的限制。
+        非 ASCII 的键或值将被跳过，返回给 MinIO 的仅为 ASCII-safe 元数据。
+        原始元数据保留用于 Elasticsearch 索引。
+        """
+        if not metadata:
+            return None
+        safe: Dict[str, str] = {}
+        for key, value in metadata.items():
+            try:
+                key_str = str(key)
+                val_str = str(value)
+                key_str.encode("ascii")
+                val_str.encode("ascii")
+                safe[key_str] = val_str
+            except Exception:
+                # 跳过非 ASCII 的键值
+                continue
+        return safe if safe else None
+    
     async def list_buckets(self) -> List[Dict[str, Any]]:
         try:
-            buckets = self.client.list_buckets()
+            buckets = await run_in_threadpool(self.client.list_buckets)
             return [
                 {
                     "name": bucket.name,
@@ -31,34 +53,36 @@ class MinioService:
     
     async def create_bucket(self, bucket_name: str) -> Dict[str, str]:
         try:
-            if self.client.bucket_exists(bucket_name):
+            if await run_in_threadpool(self.client.bucket_exists, bucket_name):
                 raise Exception(f"Bucket '{bucket_name}' already exists")
             
-            self.client.make_bucket(bucket_name)
+            await run_in_threadpool(self.client.make_bucket, bucket_name)
             return {"message": f"Bucket '{bucket_name}' created successfully"}
         except MinioException as e:
             raise Exception(f"Error creating bucket: {str(e)}")
     
     async def delete_bucket(self, bucket_name: str) -> Dict[str, str]:
         try:
-            if not self.client.bucket_exists(bucket_name):
+            if not await run_in_threadpool(self.client.bucket_exists, bucket_name):
                 raise Exception(f"Bucket '{bucket_name}' does not exist")
             
-            objects = list(self.client.list_objects(bucket_name))
+            objects = await run_in_threadpool(lambda: list(self.client.list_objects(bucket_name)))
             if objects:
                 raise Exception(f"Bucket '{bucket_name}' is not empty")
             
-            self.client.remove_bucket(bucket_name)
+            await run_in_threadpool(self.client.remove_bucket, bucket_name)
             return {"message": f"Bucket '{bucket_name}' deleted successfully"}
         except MinioException as e:
             raise Exception(f"Error deleting bucket: {str(e)}")
     
     async def list_objects(self, bucket_name: str, prefix: str = "", recursive: bool = True) -> List[Dict[str, Any]]:
         try:
-            if not self.client.bucket_exists(bucket_name):
+            if not await run_in_threadpool(self.client.bucket_exists, bucket_name):
                 raise Exception(f"Bucket '{bucket_name}' does not exist")
             
-            objects = self.client.list_objects(bucket_name, prefix=prefix, recursive=recursive)
+            objects = await run_in_threadpool(
+                lambda: list(self.client.list_objects(bucket_name, prefix=prefix, recursive=recursive))
+            )
             return [
                 {
                     "name": obj.object_name,
@@ -82,13 +106,18 @@ class MinioService:
             file_size = file_data.tell()
             file_data.seek(0)
             
-            result = self.client.put_object(
-                bucket_name=bucket_name,
-                object_name=object_name,
-                data=file_data,
-                length=file_size,
-                content_type=content_type,
-                metadata=metadata
+            # 仅将 ASCII-safe 的元数据写入 MinIO，避免非 ASCII 导致失败
+            s3_metadata = self._sanitize_metadata_for_s3(metadata)
+            
+            result = await run_in_threadpool(
+                lambda: self.client.put_object(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    data=file_data,
+                    length=file_size,
+                    content_type=content_type,
+                    metadata=s3_metadata
+                )
             )
             
             upload_result = {
@@ -105,6 +134,7 @@ class MinioService:
                     "content_type": content_type,
                     "size": file_size,
                     "etag": result.etag,
+                    # 保留原始元数据用于 ES（允许非 ASCII）
                     "metadata": metadata or {},
                     "last_modified": None  # MinIO会自动设置
                 }
@@ -119,26 +149,28 @@ class MinioService:
     
     async def download_file(self, bucket_name: str, object_name: str) -> tuple[bytes, Dict[str, Any]]:
         try:
-            response = self.client.get_object(bucket_name, object_name)
-            data = response.read()
-            
-            metadata = {
-                "content_type": response.content_type,
-                "etag": response.etag,
-                "last_modified": response.last_modified.isoformat() if response.last_modified else None,
-                "size": len(data)
-            }
-            
-            response.close()
-            response.release_conn()
-            
+            def _read_object():
+                resp = self.client.get_object(bucket_name, object_name)
+                try:
+                    data_bytes = resp.read()
+                    meta = {
+                        "content_type": resp.content_type,
+                        "etag": resp.etag,
+                        "last_modified": resp.last_modified.isoformat() if resp.last_modified else None,
+                        "size": len(data_bytes)
+                    }
+                    return data_bytes, meta
+                finally:
+                    resp.close()
+                    resp.release_conn()
+            data, metadata = await run_in_threadpool(_read_object)
             return data, metadata
         except MinioException as e:
             raise Exception(f"Error downloading file: {str(e)}")
     
     async def delete_object(self, bucket_name: str, object_name: str) -> Dict[str, str]:
         try:
-            self.client.remove_object(bucket_name, object_name)
+            await run_in_threadpool(self.client.remove_object, bucket_name, object_name)
             
             # 从Elasticsearch中删除索引
             try:
@@ -154,7 +186,7 @@ class MinioService:
     
     async def get_object_info(self, bucket_name: str, object_name: str) -> Dict[str, Any]:
         try:
-            stat = self.client.stat_object(bucket_name, object_name)
+            stat = await run_in_threadpool(self.client.stat_object, bucket_name, object_name)
             return {
                 "name": stat.object_name,
                 "size": stat.size,
@@ -170,16 +202,18 @@ class MinioService:
                                    expires: int = 3600, method: str = "GET") -> str:
         try:
             if method.upper() == "GET":
-                url = self.client.presigned_get_object(
-                    bucket_name=bucket_name,
-                    object_name=object_name,
-                    expires=timedelta(seconds=expires)
+                url = await run_in_threadpool(
+                    self.client.presigned_get_object,
+                    bucket_name,
+                    object_name,
+                    timedelta(seconds=expires)
                 )
             elif method.upper() == "PUT":
-                url = self.client.presigned_put_object(
-                    bucket_name=bucket_name,
-                    object_name=object_name,
-                    expires=timedelta(seconds=expires)
+                url = await run_in_threadpool(
+                    self.client.presigned_put_object,
+                    bucket_name,
+                    object_name,
+                    timedelta(seconds=expires)
                 )
             else:
                 raise ValueError(f"Unsupported method: {method}")
@@ -191,10 +225,11 @@ class MinioService:
     async def copy_object(self, source_bucket: str, source_object: str, 
                          dest_bucket: str, dest_object: str) -> Dict[str, Any]:
         try:
-            result = self.client.copy_object(
-                bucket_name=dest_bucket,
-                object_name=dest_object,
-                source=f"{source_bucket}/{source_object}"
+            result = await run_in_threadpool(
+                self.client.copy_object,
+                dest_bucket,
+                dest_object,
+                CopySource(source_bucket, source_object)
             )
             
             return {
@@ -210,7 +245,7 @@ class MinioService:
         try:
             import json
             policy_json = json.dumps(policy)
-            self.client.set_bucket_policy(bucket_name, policy_json)
+            await run_in_threadpool(self.client.set_bucket_policy, bucket_name, policy_json)
             return {"message": f"Policy set successfully for bucket '{bucket_name}'"}
         except MinioException as e:
             raise Exception(f"Error setting bucket policy: {str(e)}")
@@ -218,7 +253,7 @@ class MinioService:
     async def get_bucket_policy(self, bucket_name: str) -> Dict[str, Any]:
         try:
             import json
-            policy = self.client.get_bucket_policy(bucket_name)
+            policy = await run_in_threadpool(self.client.get_bucket_policy, bucket_name)
             return json.loads(policy) if policy else {}
         except MinioException as e:
             raise Exception(f"Error getting bucket policy: {str(e)}")
@@ -246,7 +281,7 @@ class MinioService:
             
             import json
             policy_json = json.dumps(public_policy)
-            self.client.set_bucket_policy(bucket_name, policy_json)
+            await run_in_threadpool(self.client.set_bucket_policy, bucket_name, policy_json)
             return {"message": f"Bucket '{bucket_name}' is now public"}
         except MinioException as e:
             raise Exception(f"Error making bucket public: {str(e)}")
@@ -254,7 +289,12 @@ class MinioService:
     async def make_bucket_private(self, bucket_name: str) -> Dict[str, str]:
         """移除桶的公开访问策略"""
         try:
-            self.client.remove_bucket_policy(bucket_name)
+            import json
+            private_policy = json.dumps({
+                "Version": "2012-10-17",
+                "Statement": []
+            })
+            await run_in_threadpool(self.client.set_bucket_policy, bucket_name, private_policy)
             return {"message": f"Bucket '{bucket_name}' is now private"}
         except MinioException as e:
             raise Exception(f"Error making bucket private: {str(e)}")
@@ -263,7 +303,7 @@ class MinioService:
         """获取文件的公开访问URL（如果桶是公开的）"""
         try:
             # 检查文件是否存在
-            self.client.stat_object(bucket_name, object_name)
+            await run_in_threadpool(self.client.stat_object, bucket_name, object_name)
             
             # 构建公开访问URL
             settings = get_settings()
@@ -277,7 +317,7 @@ class MinioService:
             is_public = False
             try:
                 import json
-                policy = self.client.get_bucket_policy(bucket_name)
+                policy = await run_in_threadpool(self.client.get_bucket_policy, bucket_name)
                 if policy:
                     policy_dict = json.loads(policy)
                     # 检查是否有允许公开访问的策略

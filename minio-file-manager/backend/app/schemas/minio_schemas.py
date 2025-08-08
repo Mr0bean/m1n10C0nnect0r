@@ -86,6 +86,11 @@ class UploadResponse(BaseModel):
     object_name: str = Field(..., description="对象名称")
     etag: str = Field(..., description="ETag（MD5哈希值）")
     version_id: Optional[str] = Field(None, description="版本ID（如果启用版本控制）")
+    size: Optional[int] = Field(None, description="文件大小（字节）")
+    message: Optional[str] = Field(None, description="上传结果消息")
+    public_url: Optional[str] = Field(None, description="MinIO公开访问URL")
+    es_indexed: Optional[bool] = Field(None, description="是否已索引到Elasticsearch")
+    es_document_id: Optional[str] = Field(None, description="Elasticsearch文档ID")
 
     class Config:
         json_schema_extra = {
@@ -93,7 +98,12 @@ class UploadResponse(BaseModel):
                 "bucket": "documents",
                 "object_name": "2024/report.pdf",
                 "etag": "d41d8cd98f00b204e9800998ecf8427e",
-                "version_id": None
+                "version_id": None,
+                "size": 1048576,
+                "message": "文件已成功上传到MinIO并索引到Elasticsearch",
+                "public_url": "http://minio:9000/documents/2024/report.pdf",
+                "es_indexed": True,
+                "es_document_id": "abc123def456"
             }
         }
 

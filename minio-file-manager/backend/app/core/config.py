@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -14,6 +15,11 @@ class Settings(BaseSettings):
     elasticsearch_username: str = ""
     elasticsearch_password: str = ""
     elasticsearch_use_ssl: bool = False
+    
+    document_pipeline_enabled: bool = True
+    document_pipeline_types: List[str] = ["markdown", "html"]
+    document_pipeline_index: str = "minio_documents"
+    document_pipeline_max_content_size: int = 50000
     
     api_port: int = 9011
     api_host: str = "0.0.0.0"

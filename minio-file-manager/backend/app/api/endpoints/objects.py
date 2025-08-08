@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Response, Path, Query, Body
-from typing import List, Optional
+from fastapi import APIRouter, HTTPException, UploadFile, File, Response, Path, Query, Body, Form
+from typing import List, Optional, Dict, Any
 from app.schemas.minio_schemas import (
     ObjectResponse,
     ObjectInfoResponse,
@@ -12,7 +12,10 @@ from app.schemas.minio_schemas import (
     PublicUrlResponse
 )
 from app.services.minio_service import minio_service
+from app.services.document_pipeline_service import document_pipeline_service
+from app.core.config import get_settings
 import io
+import json
 
 router = APIRouter(
     prefix="/objects", 
@@ -114,31 +117,57 @@ async def upload_file(
     bucket_name: str = Path(..., description="存储桶名称", example="my-bucket"),
     file: UploadFile = File(..., description="要上传的文件"),
     object_name: Optional[str] = Query(None, description="自定义对象名称/路径", example="docs/report.pdf"),
-    metadata: Optional[str] = Query(None, description="JSON格式的元数据", example='{"author":"张三","version":"1.0"}')
+    metadata: Optional[str] = Form(None, description="JSON格式的元数据", example='{"author":"张三","version":"1.0"}'),
+    metadata_q: Optional[str] = Query(None, description="（兼容）通过查询参数传递的JSON元数据"),
+    use_pipeline: bool = Query(True, description="是否使用文档处理管道（MD/HTML文件自动索引到ES）")
 ):
     try:
         object_name = object_name or file.filename
-        
         file_data = await file.read()
-        file_stream = io.BytesIO(file_data)
         
         metadata_dict = None
-        if metadata:
-            import json
+        metadata_input = metadata if metadata is not None else metadata_q
+        if metadata_input:
             try:
-                metadata_dict = json.loads(metadata)
+                metadata_dict = json.loads(metadata_input)
             except:
                 raise ValueError("Invalid metadata format")
         
-        result = await minio_service.upload_file(
-            bucket_name=bucket_name,
-            object_name=object_name,
-            file_data=file_stream,
-            content_type=file.content_type or "application/octet-stream",
-            metadata=metadata_dict
-        )
+        settings = get_settings()
         
-        return result
+        if use_pipeline and settings.document_pipeline_enabled and document_pipeline_service.is_document_file(object_name, file.content_type):
+            pipeline_result = await document_pipeline_service.process_upload(
+                bucket_name=bucket_name,
+                file_name=object_name,
+                file_content=file_data,
+                content_type=file.content_type
+            )
+            
+            if pipeline_result['error']:
+                raise HTTPException(status_code=500, detail=f"Pipeline error: {pipeline_result['error']}")
+            
+            response = UploadResponse(
+                bucket=bucket_name,
+                object_name=object_name,
+                etag=pipeline_result.get('etag', ''),
+                size=len(file_data),
+                message="文件已成功上传到MinIO并索引到Elasticsearch",
+                public_url=pipeline_result.get('public_url'),
+                es_indexed=pipeline_result.get('es_indexed', False),
+                es_document_id=pipeline_result.get('es_document_id')
+            )
+            return response
+        else:
+            file_stream = io.BytesIO(file_data)
+            result = await minio_service.upload_file(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                file_data=file_stream,
+                content_type=file.content_type or "application/octet-stream",
+                metadata=metadata_dict
+            )
+            return result
+        
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
