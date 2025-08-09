@@ -1,0 +1,72 @@
+{
+  "minio_articles": {
+    "mappings": {
+      "properties": {
+        "id": { 
+          "type": "keyword" 
+        },
+        "title": { 
+          "type": "text",
+          "analyzer": "ik_max_word",
+          "search_analyzer": "ik_smart",
+          "fields": {
+            "keyword": { 
+              "type": "keyword" 
+            }
+          }
+        },
+        "summary": { 
+          "type": "text",
+          "analyzer": "ik_max_word"
+        },
+        "content": { 
+          "type": "text",
+          "analyzer": "ik_max_word"
+        },
+        "category": { 
+          "type": "keyword" 
+        },
+        "tags": { 
+          "type": "keyword" 
+        },
+        "author": { 
+          "type": "keyword" 
+        },
+        "publish_date": { 
+          "type": "date" 
+        },
+        "read_time": { 
+          "type": "integer" 
+        },
+        "view_count": { 
+          "type": "integer" 
+        },
+        "like_count": { 
+          "type": "integer" 
+        },
+        "featured": { 
+          "type": "boolean" 
+        },
+        "member_only": { 
+          "type": "boolean" 
+        }
+      }
+    },
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "analysis": {
+        "analyzer": {
+          "ik_max_word": {
+            "type": "custom",
+            "tokenizer": "ik_max_word"
+          },
+          "ik_smart": {
+            "type": "custom",
+            "tokenizer": "ik_smart"
+          }
+        }
+      }
+    }
+  }
+}
