@@ -147,7 +147,7 @@ DOCUMENT_PIPELINE_MAX_CONTENT_SIZE=50000
 
 # API配置
 API_HOST=0.0.0.0
-API_PORT=8000
+API_PORT=9011
 ```
 
 ## 📦 依赖版本
@@ -195,7 +195,7 @@ python minio-file-manager/backend/test_public_url.py
 ```bash
 cd minio-file-manager/backend
 pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 9011
 ```
 
 ### 前端启动

@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     elasticsearch_password: str = ""
     elasticsearch_use_ssl: bool = False
     
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_database: str = "newsletters"
+    postgres_user: str = "postgres"
+    postgres_password: str = ""
+    
     document_pipeline_enabled: bool = True
     document_pipeline_types: List[str] = ["markdown", "html"]
     document_pipeline_index: str = "minio_documents"

@@ -20,6 +20,9 @@ class IndexInitializer:
     ARTICLE_INDEX_MAPPING = {
         "mappings": {
             "properties": {
+                # PostgreSQL关联
+                "pg_id": {"type": "keyword"},
+                
                 # 文章基本信息
                 "id": {"type": "keyword"},
                 "title": {

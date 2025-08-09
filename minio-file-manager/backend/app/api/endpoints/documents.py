@@ -35,7 +35,7 @@ class DocumentSearchResponse(BaseModel):
                         "document_type": "markdown",
                         "statistics": {
                             "word_count": 1500,
-                            "char_count": 8000
+                            "char_count": 9011
                         },
                         "_highlight": {
                             "content": ["...匹配的内容片段..."],

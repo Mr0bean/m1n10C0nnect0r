@@ -105,7 +105,7 @@ GET /api/v1/documents/search
       "document_type": "markdown",
       "statistics": {
         "word_count": 1500,
-        "char_count": 8000
+        "char_count": 9011
       },
       "_highlight": {
         "content": ["...匹配的<mark>关键词</mark>片段..."],
@@ -154,7 +154,7 @@ import requests
 with open('README.md', 'rb') as f:
     files = {'file': ('README.md', f, 'text/markdown')}
     response = requests.post(
-        'http://localhost:8000/api/v1/objects/documents/upload',
+        'http://localhost:9011/api/v1/objects/documents/upload',
         files=files,
         params={'use_pipeline': 'true'}
     )
@@ -164,7 +164,7 @@ with open('README.md', 'rb') as f:
 
 # 搜索文档
 search_response = requests.get(
-    'http://localhost:8000/api/v1/documents/search',
+    'http://localhost:9011/api/v1/documents/search',
     params={'query': '项目', 'fuzzy': 'true'}
 )
 docs = search_response.json()

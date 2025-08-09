@@ -19,7 +19,7 @@ async def test_index_creation():
     
     async with aiohttp.ClientSession() as session:
         # 获取所有索引
-        async with session.get("http://localhost:8000/api/v1/elasticsearch/indices") as resp:
+        async with session.get("http://localhost:9011/api/v1/elasticsearch/indices") as resp:
             if resp.status == 200:
                 indices = await resp.json()
                 minio_articles_found = False
@@ -101,7 +101,7 @@ model.compile(optimizer='adam',
         
         # 创建bucket
         async with session.post(
-            "http://localhost:8000/api/v1/buckets",
+            "http://localhost:9011/api/v1/buckets",
             json={"bucket_name": bucket_name}
         ) as resp:
             if resp.status in [200, 201]:
@@ -116,7 +116,7 @@ model.compile(optimizer='adam',
         
         # 设置bucket为公开
         async with session.put(
-            f"http://localhost:8000/api/v1/buckets/{bucket_name}/make-public"
+            f"http://localhost:9011/api/v1/buckets/{bucket_name}/make-public"
         ) as resp:
             if resp.status == 200:
                 print(f"✅ 设置存储桶为公开")
@@ -134,7 +134,7 @@ model.compile(optimizer='adam',
                       content_type='text/markdown')
         
         async with session.post(
-            f"http://localhost:8000/api/v1/objects/{bucket_name}/upload",
+            f"http://localhost:9011/api/v1/objects/{bucket_name}/upload",
             data=data
         ) as resp:
             if resp.status in [200, 201]:
@@ -167,7 +167,7 @@ async def test_search():
         search_query = "深度学习"
         
         async with session.get(
-            f"http://localhost:8000/api/v1/elasticsearch/search",
+            f"http://localhost:9011/api/v1/elasticsearch/search",
             params={
                 "index": "minio_articles",
                 "query": search_query,
@@ -207,7 +207,7 @@ async def test_document_structure():
     async with aiohttp.ClientSession() as session:
         # 获取索引映射
         async with session.get(
-            f"http://localhost:8000/api/v1/elasticsearch/indices/minio_articles/mapping"
+            f"http://localhost:9011/api/v1/elasticsearch/indices/minio_articles/mapping"
         ) as resp:
             if resp.status == 200:
                 mapping = await resp.json()

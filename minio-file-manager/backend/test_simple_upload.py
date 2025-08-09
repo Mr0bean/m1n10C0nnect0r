@@ -23,7 +23,7 @@ files = {
 
 # 上传文件
 response = requests.post(
-    'http://localhost:8000/api/v1/objects/test-articles/upload',
+    'http://localhost:9011/api/v1/objects/test-articles/upload',
     files=files
 )
 

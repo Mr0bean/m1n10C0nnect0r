@@ -14,11 +14,11 @@ cd minio-file-manager/backend
 pip install -r requirements.txt
 
 # Run the FastAPI server
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 9011
 
 # Access API documentation
-# Swagger UI: http://localhost:8000/docs
-# ReDoc: http://localhost:8000/redoc
+# Swagger UI: http://localhost:9011/docs
+# ReDoc: http://localhost:9011/redoc
 ```
 
 ### MinIO File Manager Frontend
@@ -140,7 +140,7 @@ ELASTICSEARCH_USE_SSL=false
 
 # API Settings
 API_HOST=0.0.0.0
-API_PORT=8000
+API_PORT=9011
 ```
 
 ### Newsletter Article Structure

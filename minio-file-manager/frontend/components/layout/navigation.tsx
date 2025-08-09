@@ -73,7 +73,7 @@ export default function Navigation() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2 text-sm text-gray-500">
               <Activity className="w-4 h-4" />
-              <span>后端: localhost:8000</span>
+              <span>后端: localhost:9011</span>
             </div>
             <div className="flex items-center space-x-2 text-sm text-gray-500">
               <Activity className="w-4 h-4 text-green-500" />
