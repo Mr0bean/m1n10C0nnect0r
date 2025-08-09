@@ -12,6 +12,7 @@ class ElasticsearchService:
         self.settings = get_settings()
         self.client = None
         self.index_name = self.settings.elasticsearch_index
+        self._indices_initialized = False
         
     async def get_client(self) -> AsyncElasticsearch:
         """获取Elasticsearch客户端"""
@@ -33,103 +34,10 @@ class ElasticsearchService:
             )
         return self.client
     
-    async def create_index_if_not_exists(self):
-        """创建索引（如果不存在）"""
-        try:
-            client = await self.get_client()
-            
-            if not await client.indices.exists(index=self.index_name):
-                # 定义索引映射
-                mapping = {
-                    "mappings": {
-                        "properties": {
-                            "bucket": {
-                                "type": "keyword"
-                            },
-                            "object_name": {
-                                "type": "text",
-                                "fields": {
-                                    "keyword": {
-                                        "type": "keyword"
-                                    }
-                                }
-                            },
-                            "file_name": {
-                                "type": "text",
-                                "fields": {
-                                    "keyword": {
-                                        "type": "keyword"
-                                    }
-                                }
-                            },
-                            "file_extension": {
-                                "type": "keyword"
-                            },
-                            "content_type": {
-                                "type": "keyword"
-                            },
-                            "file_size": {
-                                "type": "long"
-                            },
-                            "etag": {
-                                "type": "keyword"
-                            },
-                            "upload_time": {
-                                "type": "date"
-                            },
-                            "last_modified": {
-                                "type": "date"
-                            },
-                            "metadata": {
-                                "type": "object",
-                                "enabled": True
-                            },
-                            "public_url": {
-                                "type": "keyword"
-                            },
-                            "is_public": {
-                                "type": "boolean"
-                            },
-                            "tags": {
-                                "type": "keyword"
-                            },
-                            "description": {
-                                "type": "text",
-                                "analyzer": "standard"
-                            },
-                            "file_path": {
-                                "type": "text",
-                                "fields": {
-                                    "keyword": {
-                                        "type": "keyword"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "settings": {
-                        "number_of_shards": 1,
-                        "number_of_replicas": 0,
-                        "analysis": {
-                            "analyzer": {
-                                "standard": {
-                                    "type": "standard"
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                await client.indices.create(index=self.index_name, body=mapping)
-                print(f"创建Elasticsearch索引: {self.index_name}")
-        except Exception as e:
-            print(f"创建ES索引失败: {e}")
-    
     async def index_file(self, bucket: str, object_name: str, file_info: Dict[str, Any]) -> bool:
         """索引文件信息到Elasticsearch"""
         try:
             client = await self.get_client()
-            await self.create_index_if_not_exists()
             
             # 生成文档ID
             doc_id = hashlib.md5(f"{bucket}/{object_name}".encode()).hexdigest()
@@ -377,99 +285,11 @@ class ElasticsearchService:
         if self.client:
             await self.client.close()
     
-    async def create_document_index_if_not_exists(self):
-        """创建文档内容索引（如果不存在）"""
-        try:
-            client = await self.get_client()
-            index_name = "minio_documents"
-            
-            if not await client.indices.exists(index=index_name):
-                mapping = {
-                    "mappings": {
-                        "properties": {
-                            "bucket_name": {"type": "keyword"},
-                            "object_name": {"type": "keyword"},
-                            "title": {
-                                "type": "text",
-                                "analyzer": "standard",
-                                "fields": {
-                                    "keyword": {"type": "keyword"}
-                                }
-                            },
-                            "content": {
-                                "type": "text",
-                                "analyzer": "standard"
-                            },
-                            "content_full": {
-                                "type": "text",
-                                "index": False
-                            },
-                            "html_content": {
-                                "type": "text",
-                                "index": False
-                            },
-                            "content_hash": {"type": "keyword"},
-                            "document_type": {"type": "keyword"},
-                            "size": {"type": "long"},
-                            "content_type": {"type": "keyword"},
-                            "upload_time": {"type": "date"},
-                            "minio_public_url": {"type": "keyword"},
-                            "description": {"type": "text"},
-                            "keywords": {"type": "keyword"},
-                            "author": {"type": "text"},
-                            "document_metadata": {
-                                "type": "object",
-                                "enabled": True
-                            },
-                            "statistics": {
-                                "properties": {
-                                    "word_count": {"type": "integer"},
-                                    "char_count": {"type": "integer"},
-                                    "line_count": {"type": "integer"},
-                                    "url_count": {"type": "integer"}
-                                }
-                            },
-                            "extracted_urls": {"type": "keyword"},
-                            "searchable": {"type": "boolean"}
-                        }
-                    },
-                    "settings": {
-                        "number_of_shards": 2,
-                        "number_of_replicas": 1,
-                        "analysis": {
-                            "analyzer": {
-                                "standard": {
-                                    "type": "standard"
-                                },
-                                "ngram_analyzer": {
-                                    "type": "custom",
-                                    "tokenizer": "standard",
-                                    "filter": ["lowercase", "ngram_filter"]
-                                }
-                            },
-                            "filter": {
-                                "ngram_filter": {
-                                    "type": "ngram",
-                                    "min_gram": 2,
-                                    "max_gram": 4
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                await client.indices.create(index=index_name, body=mapping)
-                print(f"创建文档内容索引: {index_name}")
-        except Exception as e:
-            print(f"创建文档索引失败: {e}")
-    
+
     async def index_document(self, index_name: str, document: Dict[str, Any], document_id: Optional[str] = None) -> Dict[str, Any]:
         """索引文档到指定索引"""
         try:
             client = await self.get_client()
-            
-            if index_name == "minio_documents":
-                await self.create_document_index_if_not_exists()
             
             result = await client.index(
                 index=index_name,
