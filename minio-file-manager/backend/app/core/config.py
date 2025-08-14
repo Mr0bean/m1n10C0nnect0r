@@ -4,10 +4,23 @@ from typing import List, Optional
 
 
 class Settings(BaseSettings):
-    minio_endpoint: str
-    minio_access_key: str
-    minio_secret_key: str
+    # 存储类型选择 (minio 或 oss)
+    storage_type: str = "minio"
+    
+    # MinIO 配置
+    minio_endpoint: str = ""
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
     minio_use_ssl: bool = False
+    
+    # 阿里云OSS 配置
+    oss_endpoint: str = ""
+    oss_access_key: str = ""
+    oss_secret_key: str = ""
+    oss_region: str = ""
+    oss_use_ssl: bool = True
+    oss_use_cname: bool = False
+    oss_cname_domain: str = ""
     
     elasticsearch_host: str = "localhost"
     elasticsearch_port: int = 9200
@@ -30,12 +43,12 @@ class Settings(BaseSettings):
     api_port: int = 9011
     api_host: str = "0.0.0.0"
     
-    api_title: str = "MinIO 文件管理系统 API"
+    api_title: str = "多云存储文件管理系统 API"
     api_version: str = "1.0.0"
     api_description: str = """
-## MinIO 文件管理系统 API 文档
+## 多云存储文件管理系统 API 文档
 
-这是一个功能完整的 MinIO 对象存储管理系统，提供了全面的文件和存储桶管理功能。
+这是一个功能完整的多云对象存储管理系统，支持 MinIO 和阿里云 OSS，提供了统一的文件和存储桶管理接口。
 
 ### 主要功能模块
 
@@ -73,8 +86,17 @@ class Settings(BaseSettings):
 4. 错误响应包含详细的错误信息
 
 ### 认证说明
-当前版本使用 MinIO 的 Access Key 和 Secret Key 进行认证，这些凭据在服务器端配置。
+当前版本支持多种存储后端的认证：
+- MinIO: 使用 Access Key 和 Secret Key 进行认证
+- 阿里云OSS: 使用 Access Key ID 和 Access Key Secret 进行认证
+
+所有认证凭据在服务器端配置，客户端无需处理认证逻辑。
 未来版本将支持 JWT 令牌认证。
+
+### 存储类型切换
+通过配置文件中的 `STORAGE_TYPE` 参数可以在不同存储后端之间切换：
+- `minio`: 使用 MinIO 作为存储后端
+- `oss`: 使用阿里云 OSS 作为存储后端
 """
     
     class Config:

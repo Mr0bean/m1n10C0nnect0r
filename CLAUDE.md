@@ -4,6 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+### Quick Start (Recommended)
+
+```bash
+# Start backend service (from project root)
+./scripts/start_backend.sh  # Runs on http://localhost:8000
+
+# Start frontend service (from project root) 
+./scripts/start_frontend.sh  # Runs on http://localhost:9010
+```
+
 ### MinIO File Manager Backend
 
 ```bash
@@ -13,12 +23,15 @@ cd minio-file-manager/backend
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the FastAPI server
+# Run the FastAPI server (development)
 python -m uvicorn app.main:app --reload --port 9011
 
+# Alternative: Run with convenience script (uses port 8000)
+../scripts/start_backend.sh
+
 # Access API documentation
-# Swagger UI: http://localhost:9011/docs
-# ReDoc: http://localhost:9011/redoc
+# Swagger UI: http://localhost:9011/docs (or :8000/docs with script)
+# ReDoc: http://localhost:9011/redoc (or :8000/redoc with script)
 ```
 
 ### MinIO File Manager Frontend
@@ -35,6 +48,15 @@ npm run dev  # Runs on http://localhost:9010
 
 # Build for production
 npm run build
+
+# Start production build
+npm run start
+
+# Lint code
+npm run lint
+
+# Alternative: Run with convenience script
+../scripts/start_frontend.sh
 ```
 
 ### Newsletter Upload to Elasticsearch
@@ -50,10 +72,13 @@ python minio-file-manager/backend/upload_crawled_articles.py [JSON_FILE] --verif
 python minio-file-manager/backend/upload_crawled_articles.py articles.json --batch-size 50
 ```
 
-### Testing MinIO APIs
+### Testing and Utilities
 
 ```bash
-# Test bucket operations
+# Test multi-storage configuration and switching
+python minio-file-manager/backend/test_storage_factory.py
+
+# Test bucket operations (works with any storage backend)
 python minio-file-manager/backend/test_public_bucket.py
 
 # Test public URL generation
@@ -61,20 +86,41 @@ python minio-file-manager/backend/test_public_url.py
 
 # Test delete operations
 python minio-file-manager/backend/test_delete_api.py
+
+# Test PostgreSQL integration
+python minio-file-manager/backend/test_pg_integration.py
+
+# Test complete document pipeline
+python minio-file-manager/backend/test_complete_pipeline.py
+
+# Clear Elasticsearch indices
+python scripts/clear_es.py
+
+# Clear MinIO storage
+python scripts/clear_minio.py
+
+# Show Elasticsearch cluster details
+python scripts/show_es_details.py
 ```
 
 ## Architecture Overview
 
-This project integrates MinIO object storage with Elasticsearch for Newsletter article management. It consists of two main components:
+This project is a multi-cloud object storage management system that supports both MinIO and Aliyun OSS, with Elasticsearch integration for content indexing. It consists of two main components:
 
-### 1. MinIO File Manager
-A full-stack application for managing files in MinIO storage:
+### 1. Multi-Cloud File Manager
+A full-stack application for managing files across different storage backends:
 
 **Backend (FastAPI)**:
-- `app/services/minio_service.py`: Core MinIO operations (singleton pattern)
+- `app/services/storage_service.py`: Abstract storage interface for multi-cloud support
+- `app/services/storage_factory.py`: Factory pattern for creating storage instances
+- `app/services/minio_storage_service.py`: MinIO storage implementation
+- `app/services/oss_service.py`: Aliyun OSS storage implementation  
+- `app/services/minio_service.py`: Legacy MinIO service (deprecated)
 - `app/services/elasticsearch_service.py`: Basic ES integration for file metadata
-- `app/services/newsletter_elasticsearch_service.py`: Specialized Newsletter article indexing with deduplication
-- `app/api/endpoints/`: RESTful endpoints for buckets, objects, search, and newsletter operations
+- `app/services/postgresql_service.py`: PostgreSQL integration for logging and metadata
+- `app/services/article_processing_service.py`: Article processing and index management
+- `app/services/index_initializer.py`: Elasticsearch index setup and configuration
+- `app/api/endpoints/`: RESTful endpoints for buckets, objects, search, and document operations
 
 **Frontend (Next.js 15 + React 19)**:
 - Modern UI with Tailwind CSS and shadcn/ui components
@@ -124,19 +170,51 @@ Specialized system for managing Newsletter articles with Elasticsearch integrati
 
 ## Configuration
 
-### Backend Configuration (.env)
-```env
-# MinIO Settings
-MINIO_ENDPOINT=60.205.160.74:9000
-MINIO_ACCESS_KEY=your-access-key
-MINIO_SECRET_KEY=your-secret-key
-MINIO_USE_SSL=false
+### Multi-Cloud Storage Configuration
 
+The system supports seamless switching between different storage backends by modifying only the configuration file. No code changes are required.
+
+### Backend Configuration (.env)
+
+#### Storage Type Selection
+```env
+# Storage backend type: minio or oss
+STORAGE_TYPE=minio
+```
+
+#### MinIO Configuration (when STORAGE_TYPE=minio)
+```env
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin  
+MINIO_SECRET_KEY=minioadmin
+MINIO_USE_SSL=false
+```
+
+#### Aliyun OSS Configuration (when STORAGE_TYPE=oss)
+```env
+OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
+OSS_ACCESS_KEY=your-oss-access-key-id
+OSS_SECRET_KEY=your-oss-access-key-secret  
+OSS_REGION=cn-hangzhou
+OSS_USE_SSL=true
+OSS_USE_CNAME=false
+OSS_CNAME_DOMAIN=
+```
+
+#### Other Services Configuration
+```env
 # Elasticsearch Settings
 ELASTICSEARCH_HOST=localhost
 ELASTICSEARCH_PORT=9200
 ELASTICSEARCH_INDEX=minio_files
 ELASTICSEARCH_USE_SSL=false
+
+# PostgreSQL Settings
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=newsletters
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-password
 
 # API Settings
 API_HOST=0.0.0.0
@@ -216,3 +294,74 @@ The codebase includes comprehensive test scripts:
 - `test_elasticsearch.py`: Basic ES connectivity
 
 Each test includes sample data generation and verification steps.
+
+## Storage Backend Switching
+
+### Seamless Migration Strategy
+
+The system implements a factory pattern that allows switching between MinIO and OSS without code changes:
+
+#### 1. Configuration-Only Switching
+```bash
+# Switch to MinIO
+echo "STORAGE_TYPE=minio" > .env
+
+# Switch to OSS  
+echo "STORAGE_TYPE=oss" > .env
+
+# Restart the service
+python -m uvicorn app.main:app --reload --port 9011
+```
+
+#### 2. Validation and Testing
+```bash
+# Test current storage configuration
+python minio-file-manager/backend/test_storage_factory.py
+
+# Validate configuration for specific storage type
+python -c "
+from app.services.storage_factory import StorageFactory
+from app.services.storage_service import StorageType
+
+# Test MinIO config
+result = StorageFactory.validate_storage_config(StorageType.MINIO)
+print(f'MinIO config valid: {result[\"is_valid\"]}')
+
+# Test OSS config  
+result = StorageFactory.validate_storage_config(StorageType.OSS)
+print(f'OSS config valid: {result[\"is_valid\"]}')
+"
+```
+
+#### 3. Migration Considerations
+
+**Data Migration**: 
+- The system provides unified APIs but data doesn't automatically migrate between backends
+- Use the copy/download APIs to manually migrate data if needed
+- Consider running both backends temporarily during migration
+
+**URL Compatibility**:
+- Public URLs will change when switching backends
+- Presigned URLs are backend-specific and will need regeneration
+- Update any hardcoded URLs in client applications
+
+**Feature Differences**:
+- MinIO: Full S3 API compatibility, self-hosted
+- OSS: Alibaba Cloud managed service, additional features like image processing
+- Both support the same core operations through the unified interface
+
+#### 4. Deployment Best Practices
+
+**Development**:
+- Use MinIO for local development (easier setup)
+- Test with actual OSS in staging environment
+
+**Production**: 
+- Choose based on requirements (cost, performance, compliance)
+- OSS for China-based deployments, MinIO for self-hosted solutions
+- Configure monitoring and backup strategies for chosen backend
+
+**Rollback Strategy**:
+- Keep configuration backups for quick rollback
+- Test rollback procedures in non-production environment
+- Monitor application metrics after switching

@@ -11,7 +11,7 @@ from app.schemas.minio_schemas import (
     PresignedUrlResponse,
     PublicUrlResponse
 )
-from app.services.minio_service import minio_service
+from app.services.storage_factory import get_storage_service
 from app.services.document_pipeline_service import document_pipeline_service
 from app.core.config import get_settings
 import io
@@ -65,7 +65,7 @@ async def list_objects(
     recursive: bool = Query(True, description="是否递归列出所有子目录")
 ):
     try:
-        return await minio_service.list_objects(bucket_name, prefix, recursive)
+        return await get_storage_service().list_objects(bucket_name, prefix, recursive)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -159,7 +159,7 @@ async def upload_file(
             return response
         else:
             file_stream = io.BytesIO(file_data)
-            result = await minio_service.upload_file(
+            result = await get_storage_service().upload_file(
                 bucket_name=bucket_name,
                 object_name=object_name,
                 file_data=file_stream,
@@ -225,7 +225,7 @@ async def download_file(
     object_name: str = Path(..., description="文件路径", example="documents/report.pdf")
 ):
     try:
-        data, metadata = await minio_service.download_file(bucket_name, object_name)
+        data, metadata = await get_storage_service().download_file(bucket_name, object_name)
         
         return Response(
             content=data,
@@ -273,7 +273,7 @@ async def get_object_info(
     object_name: str = Path(..., description="文件路径", example="documents/report.pdf")
 ):
     try:
-        return await minio_service.get_object_info(bucket_name, object_name)
+        return await get_storage_service().get_object_info(bucket_name, object_name)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -307,7 +307,7 @@ async def delete_object(
     object_name: str = Path(..., description="要删除的文件路径", example="documents/old-report.pdf")
 ):
     try:
-        return await minio_service.delete_object(bucket_name, object_name)
+        return await get_storage_service().delete_object(bucket_name, object_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -358,7 +358,7 @@ async def copy_object(
     request: CopyObjectRequest = Body(..., description="复制请求参数")
 ):
     try:
-        return await minio_service.copy_object(
+        return await get_storage_service().copy_object(
             source_bucket=request.source_bucket,
             source_object=request.source_object,
             dest_bucket=request.dest_bucket,
@@ -437,7 +437,7 @@ async def generate_presigned_url(
     request: PresignedUrlRequest = Body(..., description="预签名 URL 请求参数")
 ):
     try:
-        url = await minio_service.generate_presigned_url(
+        url = await get_storage_service().generate_presigned_url(
             bucket_name=request.bucket_name,
             object_name=request.object_name,
             expires=request.expires,
@@ -501,6 +501,6 @@ async def get_public_url(
     object_name: str = Path(..., description="文件路径", example="documents/manual.pdf")
 ):
     try:
-        return await minio_service.get_public_url(bucket_name, object_name)
+        return await get_storage_service().get_public_url(bucket_name, object_name)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
