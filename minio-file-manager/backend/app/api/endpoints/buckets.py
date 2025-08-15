@@ -7,7 +7,7 @@ from app.schemas.minio_schemas import (
     BucketPolicyRequest,
     ErrorResponse
 )
-from app.services.minio_service import minio_service
+from app.services.storage_factory import get_storage_service
 
 router = APIRouter(
     prefix="/buckets", 
@@ -44,7 +44,8 @@ router = APIRouter(
 )
 async def list_buckets():
     try:
-        return await minio_service.list_buckets()
+        storage_service = get_storage_service()
+        return await storage_service.list_buckets()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -82,7 +83,7 @@ async def list_buckets():
 )
 async def create_bucket(request: BucketCreateRequest):
     try:
-        return await minio_service.create_bucket(request.bucket_name)
+        return await get_storage_service().create_bucket(request.bucket_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -119,7 +120,7 @@ async def delete_bucket(
     bucket_name: str = Path(..., description="要删除的存储桶名称", example="my-bucket")
 ):
     try:
-        return await minio_service.delete_bucket(bucket_name)
+        return await get_storage_service().delete_bucket(bucket_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -154,7 +155,7 @@ async def get_bucket_policy(
     bucket_name: str = Path(..., description="存储桶名称", example="my-bucket")
 ):
     try:
-        return await minio_service.get_bucket_policy(bucket_name)
+        return await get_storage_service().get_bucket_policy(bucket_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -204,7 +205,7 @@ async def set_bucket_policy(
     request: BucketPolicyRequest = ...
 ):
     try:
-        return await minio_service.set_bucket_policy(bucket_name, request.policy)
+        return await get_storage_service().set_bucket_policy(bucket_name, request.policy)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -246,7 +247,7 @@ async def make_bucket_public(
     bucket_name: str = Path(..., description="要设置为公开的存储桶名称", example="public-files")
 ):
     try:
-        return await minio_service.make_bucket_public(bucket_name)
+        return await get_storage_service().make_bucket_public(bucket_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -279,6 +280,6 @@ async def make_bucket_private(
     bucket_name: str = Path(..., description="要设置为私有的存储桶名称", example="private-files")
 ):
     try:
-        return await minio_service.make_bucket_private(bucket_name)
+        return await get_storage_service().make_bucket_private(bucket_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
