@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     
     document_pipeline_enabled: bool = True
     document_pipeline_types: List[str] = ["markdown", "html"]
-    document_pipeline_index: str = "minio_documents"
+    document_pipeline_index: str = "minio_articles"
     document_pipeline_max_content_size: int = 50000
     
     api_port: int = 9011

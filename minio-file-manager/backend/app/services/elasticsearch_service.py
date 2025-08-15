@@ -8,6 +8,14 @@ from app.core.config import get_settings
 
 
 class ElasticsearchService:
+    """
+    通用 Elasticsearch 服务
+
+    职责：
+    - 维护与 ES 的连接
+    - 面向文件（默认索引：minio_files）提供索引、删除、搜索、统计
+    - 提供通用的 index/search/get 方法供其他服务复用
+    """
     def __init__(self):
         self.settings = get_settings()
         self.client = None
@@ -15,7 +23,12 @@ class ElasticsearchService:
         self._indices_initialized = False
         
     async def get_client(self) -> AsyncElasticsearch:
-        """获取Elasticsearch客户端"""
+        """
+        获取（或创建）Elasticsearch 客户端。
+
+        Returns:
+            AsyncElasticsearch: 单例客户端
+        """
         if self.client is None:
             # 构建连接URL
             if self.settings.elasticsearch_username and self.settings.elasticsearch_password:
@@ -35,7 +48,17 @@ class ElasticsearchService:
         return self.client
     
     async def index_file(self, bucket: str, object_name: str, file_info: Dict[str, Any]) -> bool:
-        """索引文件信息到Elasticsearch"""
+        """
+        将对象存储（MinIO）的文件元数据索引到默认文件索引。
+
+        Args:
+            bucket: 存储桶名
+            object_name: 对象键
+            file_info: 包含 size/etag/metadata/public_url 等信息
+
+        Returns:
+            bool: 是否索引成功
+        """
         try:
             client = await self.get_client()
             
@@ -81,7 +104,9 @@ class ElasticsearchService:
             return False
     
     async def delete_file(self, bucket: str, object_name: str) -> bool:
-        """从Elasticsearch中删除文件索引"""
+        """
+        从默认文件索引中删除某个对象的索引记录。
+        """
         try:
             client = await self.get_client()
             doc_id = hashlib.md5(f"{bucket}/{object_name}".encode()).hexdigest()
@@ -99,7 +124,13 @@ class ElasticsearchService:
     
     async def search_files(self, query: str, bucket: Optional[str] = None, 
                           file_type: Optional[str] = None, page: int = 1, size: int = 20) -> Dict[str, Any]:
-        """搜索文件"""
+        """
+        在默认文件索引（minio_files）上执行搜索。
+
+        - multi_match 检索 file_name/object_name/description/metadata
+        - 支持桶与文件类型过滤
+        - 返回裁剪的高亮片段与基本元数据
+        """
         try:
             client = await self.get_client()
             
@@ -201,7 +232,9 @@ class ElasticsearchService:
             }
     
     async def get_file_stats(self) -> Dict[str, Any]:
-        """获取文件统计信息"""
+        """
+        获取默认文件索引的统计信息（总数、按桶/文件类型聚合）。
+        """
         try:
             client = await self.get_client()
             
@@ -262,7 +295,9 @@ class ElasticsearchService:
             }
     
     def _extract_tags(self, metadata: Dict[str, str]) -> List[str]:
-        """从元数据中提取标签"""
+        """
+        从文件元数据中提取标签集合（去重）。
+        """
         tags = []
         
         # 从元数据的tags字段提取
@@ -281,13 +316,17 @@ class ElasticsearchService:
         return list(set(tags))  # 去重
     
     async def close(self):
-        """关闭Elasticsearch连接"""
+        """
+        关闭 Elasticsearch 连接。
+        """
         if self.client:
             await self.client.close()
     
 
     async def index_document(self, index_name: str, document: Dict[str, Any], document_id: Optional[str] = None) -> Dict[str, Any]:
-        """索引文档到指定索引"""
+        """
+        索引任意文档到指定索引（通用方法）。
+        """
         try:
             client = await self.get_client()
             
@@ -309,7 +348,9 @@ class ElasticsearchService:
             }
     
     async def search(self, index_name: str, body: Dict[str, Any]) -> Dict[str, Any]:
-        """通用搜索方法"""
+        """
+        通用搜索方法，按入参索引与 DSL 执行查询。
+        """
         try:
             client = await self.get_client()
             return await client.search(index=index_name, body=body)
@@ -318,7 +359,9 @@ class ElasticsearchService:
             return {"hits": {"total": {"value": 0}, "hits": []}}
     
     async def get_document(self, index_name: str, document_id: str) -> Optional[Dict[str, Any]]:
-        """获取单个文档"""
+        """
+        获取指定索引中的单个文档。
+        """
         try:
             client = await self.get_client()
             return await client.get(index=index_name, id=document_id)

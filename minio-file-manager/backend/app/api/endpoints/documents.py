@@ -269,8 +269,9 @@ async def get_document_stats():
             }
         }
         
+        settings = get_settings()
         result = await elasticsearch_service.search(
-            index_name="minio_documents",
+            index_name=settings.document_pipeline_index,
             body=stats_query
         )
         

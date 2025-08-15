@@ -30,7 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 class ArticleProcessingService:
-    """文章处理服务"""
+    """
+    文章处理服务
+
+    职责：
+    - 从上传文件中抽取可读文本、标题、摘要与元数据
+    - 结合 PostgreSQL 存储文章结构化数据，并使用返回的 ID 作为 ES 文档 ID
+    - 将富结构文档索引至 Elasticsearch（索引：minio_articles）
+    - 提供面向文章的全文搜索能力
+    """
 
     def __init__(self):
         self.settings = get_settings()
@@ -41,7 +49,9 @@ class ArticleProcessingService:
         self.index_name = "minio_articles"  # 使用新的索引名
 
     async def get_es_client(self) -> AsyncElasticsearch:
-        """获取ES客户端"""
+        """
+        获取（或创建）ES 客户端。
+        """
         scheme = "https" if self.settings.elasticsearch_use_ssl else "http"
         host = f"{scheme}://{self.settings.elasticsearch_host}:{self.settings.elasticsearch_port}"
 
@@ -58,7 +68,12 @@ class ArticleProcessingService:
         )
 
     def extract_text_content(self, file_content: bytes, filename: str, content_type: Optional[str] = None) -> Dict[str, Any]:
-        """从文件中提取文本内容"""
+        """
+        从文件中提取文本、标题、摘要与元数据。
+
+        - 支持 Markdown/HTML/Text 等类型
+        - 生成可用于文章索引的结构化内容
+        """
         file_ext = Path(filename).suffix.lower()
         content_str = file_content.decode('utf-8', errors='ignore')
 
@@ -140,7 +155,10 @@ class ArticleProcessingService:
         return result
 
     def determine_category(self, filename: str, content: str, metadata: Dict) -> str:
-        """根据文件名和内容判断分类"""
+        """
+        简单基于规则的分类：
+        - 文件名与内容特征词映射到 tutorial/news/blog/documentation/readme/technical/article/note
+        """
         filename_lower = filename.lower()
         content_lower = content.lower()
 
@@ -165,18 +183,25 @@ class ArticleProcessingService:
             return 'note'
 
     def extract_tags(self, content: str, title: str, metadata: Dict) -> List[str]:
-        """从内容中提取标签"""
+        """
+        从标题与内容中抽取标签（技术关键字与元数据 keywords），去重并限量。
+        """
         tags = []
 
         # 从标题中提取关键词
         title_words = re.findall(r'\b[A-Z][a-z]+\b', title)  # 提取首字母大写的词
         tags.extend(title_words[:5])
 
+        # 从标题中提取特殊格式的关键词（如GPT-5, GPT-4等）
+        special_keywords = re.findall(r'\b[A-Z]+-\d+\b', title)  # 提取如GPT-5, GPT-4等
+        tags.extend(special_keywords)
+
         # 从内容中提取技术关键词
         tech_keywords = [
             'python', 'javascript', 'java', 'react', 'vue', 'docker',
             'kubernetes', 'ai', 'machine learning', 'deep learning',
-            'api', 'database', 'sql', 'nosql', 'mongodb', 'redis'
+            'api', 'database', 'sql', 'nosql', 'mongodb', 'redis',
+            'gpt-5', 'gpt-4', 'gpt-3', 'claude', 'llama', 'bert'
         ]
 
         content_lower = content.lower()
@@ -202,7 +227,14 @@ class ArticleProcessingService:
         content_type: Optional[str] = None,
         author: Optional[str] = None
     ) -> Dict[str, Any]:
-        """处理文件并索引到PostgreSQL和Elasticsearch"""
+        """
+        处理文件并索引到 PostgreSQL 与 Elasticsearch。
+
+        流程：
+        1) 抽取文本/标题/摘要/元数据
+        2) 写入 PostgreSQL，返回 ID 作为 ES 文档 ID（确保一致性）
+        3) 构建文章文档结构并索引至 `minio_articles`
+        """
 
         client = await self.get_es_client()
 
@@ -306,7 +338,7 @@ class ArticleProcessingService:
                 # 如果文件不存在，生成预期的URL
                 public_url = f"http://{self.settings.minio_endpoint}/{bucket_name}/{object_name}"
 
-            # 构建文档
+            # 构建文档（与前端需要的展示字段对齐）
             document = {
 
                 # 基本信息
@@ -361,7 +393,7 @@ class ArticleProcessingService:
                 "searchable_content": f"{extracted['title']} {extracted['summary']} {extracted['content'][:500]}"
             }
 
-            # 索引到Elasticsearch
+            # 索引到Elasticsearch（索引：minio_articles）
             response = await client.index(
                 index=self.index_name,
                 id=doc_id,
@@ -395,7 +427,13 @@ class ArticleProcessingService:
         tags: Optional[List[str]] = None,
         author: Optional[str] = None
     ) -> Dict[str, Any]:
-        """搜索文章"""
+        """
+        在 `minio_articles` 中搜索文章。
+
+        - multi_match 检索标题/摘要/内容/searchable_content
+        - 支持分类、标签、作者过滤
+        - 默认按相关度与发布时间排序
+        """
         client = await self.get_es_client()
 
         try:

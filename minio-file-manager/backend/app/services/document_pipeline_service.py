@@ -17,6 +17,14 @@ from app.core.config import get_settings
 
 
 class DocumentPipelineService:
+    """
+    文档处理与检索服务
+
+    职责：
+    - 判断与提取上传文档的可索引内容（文本、HTML、元数据、统计信息）
+    - 将可索引内容交给文章处理服务或直接写入 Elasticsearch
+    - 提供面向文档内容的全文检索与相似文档检索能力
+    """
 
     CONFIGURABLE_DOCUMENT_TYPES = {
         'markdown': ['.md', '.markdown'],
@@ -44,10 +52,26 @@ class DocumentPipelineService:
         self.enabled_types = self._load_enabled_types()
 
     def _load_enabled_types(self) -> List[str]:
+        """
+        从配置中加载启用的文档类型列表。
+
+        Returns:
+            List[str]: 已启用的文档类型名称，如 ["markdown", "html"]。
+        """
         enabled = self.settings.document_pipeline_types
         return enabled if isinstance(enabled, list) else ['markdown', 'html']
 
     def is_document_file(self, filename: str, content_type: Optional[str] = None) -> bool:
+        """
+        判断给定文件是否属于可被内容管道处理的文档类型。
+
+        Args:
+            filename: 文件名（用于通过后缀判断类型）
+            content_type: 可选的 MIME 类型（用于兜底判断）
+
+        Returns:
+            bool: 是否为可处理的文档文件。
+        """
         file_ext = Path(filename).suffix.lower()
         logger.info(f'file_ext: {file_ext}  ')
         for doc_type, extensions in self.CONFIGURABLE_DOCUMENT_TYPES.items():
@@ -61,6 +85,20 @@ class DocumentPipelineService:
         return False
 
     def extract_content(self, file_content: bytes, filename: str, content_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        提取文档的可索引内容与元信息。
+
+        - 针对 Markdown/HTML/Text/RST 做差异化解析
+        - 生成内容哈希与统计信息（字数、字符数、行数、URL 数等）
+
+        Args:
+            file_content: 文件二进制内容
+            filename: 文件名
+            content_type: MIME 类型（可选）
+
+        Returns:
+            Dict[str, Any]: 标准化的内容结构，包含 content、content_full、html_content、metadata、statistics 等。
+        """
         file_ext = Path(filename).suffix.lower()
         content_str = file_content.decode('utf-8', errors='ignore')
 
@@ -113,6 +151,7 @@ class DocumentPipelineService:
             if title_match:
                 metadata['title'] = title_match.group(1).strip()
 
+        # 以文件二进制计算内容哈希，作为幂等与去重的基础标识
         content_hash = hashlib.sha256(file_content).hexdigest()
 
         word_count = len(plain_text.split())
@@ -143,7 +182,17 @@ class DocumentPipelineService:
         file_content: bytes,
         content_type: Optional[str] = None
     ) -> Dict[str, Any]:
+        """
+        处理单个文件的上传与索引（MinIO + Elasticsearch）。
 
+        工作流：
+        1) 上传到 MinIO，并尝试获取公开 URL（或生成预签名链接）
+        2) 若为支持的文档类型，优先调用文章处理服务（归一化并写入 ES 的 `minio_articles`）
+           - 若新服务失败，则回退为直接构建文档并写入配置的 `document_pipeline_index`
+
+        Returns:
+            Dict[str, Any]: 执行结果与元信息（是否索引成功、文档ID、索引名、公开链接等）。
+        """
         result = {
             'minio_upload': False,
             'es_indexed': False,
@@ -174,6 +223,7 @@ class DocumentPipelineService:
                 )
                 result['public_url'] = presigned_url
 
+            # 若文件为可处理的文档类型，则进入内容管道
             if self.is_document_file(file_name, content_type):
                 # 使用新的文章处理服务进行索引
                 article_result = await article_processing_service.process_and_index(
@@ -193,6 +243,7 @@ class DocumentPipelineService:
                     # 如果新服务失败，使用旧的索引方式作为备份
                     extracted_data = self.extract_content(file_content, file_name, content_type)
 
+                    # 构建兼容文档索引（document_pipeline_index）的文档结构
                     es_document = {
                         'bucket_name': bucket_name,
                         'object_name': file_name,
@@ -220,7 +271,7 @@ class DocumentPipelineService:
                         es_document['author'] = extracted_data['metadata']['author']
 
                     index_result = await self.es_service.index_document(
-                        index_name='minio_documents',
+                        index_name=self.settings.document_pipeline_index,
                         document=es_document,
                         document_id=extracted_data['content_hash']
                     )
@@ -242,7 +293,16 @@ class DocumentPipelineService:
         fuzzy: bool = True,
         size: int = 20
     ) -> List[Dict[str, Any]]:
+        """
+        基于配置的文档索引（`document_pipeline_index`）的通用全文检索。
 
+        - 支持模糊匹配与加权字段（title/description/keywords）
+        - 支持按桶与文档类型过滤
+        - 默认剔除大字段（content_full, html_content）
+
+        Returns:
+            List[Dict[str, Any]]: 命中文档的精简视图（含高亮信息）。
+        """
         must_conditions = []
         should_conditions = []
 
@@ -268,6 +328,7 @@ class DocumentPipelineService:
         if document_type:
             must_conditions.append({"term": {"document_type": document_type}})
 
+        # 构建 bool 查询与高亮返回
         search_body = {
             "query": {
                 "bool": {
@@ -290,7 +351,7 @@ class DocumentPipelineService:
         }
 
         results = await self.es_service.search(
-            index_name='minio_documents',
+            index_name=self.settings.document_pipeline_index,
             body=search_body
         )
 
@@ -310,10 +371,19 @@ class DocumentPipelineService:
         document_id: str,
         size: int = 10
     ) -> List[Dict[str, Any]]:
+        """
+        获取与指定文档相似的内容（More Like This）。
 
+        Args:
+            document_id: 参照文档的 ES `_id`
+            size: 返回数量
+
+        Returns:
+            List[Dict[str, Any]]: 相似文档列表（去除自身）。
+        """
         try:
             doc_result = await self.es_service.get_document(
-                index_name='minio_documents',
+                index_name=self.settings.document_pipeline_index,
                 document_id=document_id
             )
 
@@ -322,13 +392,14 @@ class DocumentPipelineService:
 
             source = doc_result['_source']
 
+            # 通过 more_like_this 构建相似检索，基于内容与标题等字段
             more_like_this_query = {
                 "query": {
                     "more_like_this": {
                         "fields": ["content", "title", "description", "keywords"],
                         "like": [
                             {
-                                "_index": "minio_documents",
+                                "_index": self.settings.document_pipeline_index,
                                 "_id": document_id
                             }
                         ],
@@ -345,7 +416,7 @@ class DocumentPipelineService:
             }
 
             results = await self.es_service.search(
-                index_name='minio_documents',
+                index_name=self.settings.document_pipeline_index,
                 body=more_like_this_query
             )
 

@@ -12,10 +12,10 @@ cd "$BACKEND_DIR" || exit 1
 
 echo "📂 工作目录: $BACKEND_DIR"
 
-# 检查是否有进程占用8000端口
-if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null ; then
-    echo "⚠️  端口8000已被占用，正在停止原有服务..."
-    lsof -Pi :8000 -sTCP:LISTEN -t | xargs kill -9
+# 检查是否有进程占用9011端口
+if lsof -Pi :9011 -sTCP:LISTEN -t >/dev/null ; then
+    echo "⚠️  端口9011已被占用，正在停止原有服务..."
+    lsof -Pi :9011 -sTCP:LISTEN -t | xargs kill -9
     sleep 2
 fi
 
@@ -26,14 +26,14 @@ if [ ! -f "requirements.txt" ]; then
 fi
 
 # 启动后端服务
-echo "✅ 在端口8000启动后端服务..."
-echo "📝 API文档地址: http://localhost:8000/docs"
+echo "✅ 在端口9011启动后端服务..."
+echo "📝 API文档地址: http://localhost:9011/docs"
 echo "📝 按 Ctrl+C 停止服务"
 echo "-" * 60
 
-python3 -m uvicorn app.main:app --reload --port 8000 --host 0.0.0.0
+python3 -m uvicorn app.main:app --reload --port 9011 --host 0.0.0.0
 
 # 如果需要后台运行，取消下面的注释并注释上面的行
-# nohup python3 -m uvicorn app.main:app --reload --port 8000 --host 0.0.0.0 > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
+# nohup python3 -m uvicorn app.main:app --reload --port 9011 --host 0.0.0.0 > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
 # echo "✅ 后端服务已在后台启动"
 # echo "📝 查看日志: tail -f $PROJECT_ROOT/logs/backend.log"
